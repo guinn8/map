@@ -16,7 +16,13 @@
             "Meziadin Lake Provincial Park, British Columbia, Canada",
             "Boya Lake Provincial Park, British Columbia, Canada",
             "Robert Service Campground, Whitehorse, Yukon, Canada",
-            "Kathleen Lake, Yukon, Canada"
+            "Tombstone, Yukon, Canada",
+            "Fort McPherson, North West Territories, Canada",
+            "Tuktoyaktuk, North West Territories, Canada",
+            "Dawson City, Yukon, Canada",
+            "Liard River Hot Springs, British Columbia, Canada",
+            "Grande Prairie, Alberta, Canada",
+            "Calgary, Alberta, Canada",
         ];
 
         const getCoordinates = async (place) => {
@@ -136,7 +142,7 @@
                     L.polyline(route, { color: 'blue', weight: 2.5 }).addTo(map);
 
                     // Sample points every 100 km along the route
-                    const sampledPoints = sampleRoutePoints(route, 100);
+                    const sampledPoints = sampleRoutePoints(route, 50);
 
                     // Find towns near each sampled point
                     await findTownsNearSampledPoints(sampledPoints, map);
