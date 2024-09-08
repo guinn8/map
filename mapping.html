@@ -1,0 +1,149 @@
+<head>
+    <title>Route Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+
+<body>
+    <div id="map" style="height: 600px;"></div>
+
+    <script>
+        const places = [
+            "Calgary, Alberta, Canada",
+            "Paul Lake Provincial Park, British Columbia, Canada",
+            "Beaumont Provincial Park, British Columbia, Canada",
+            "Meziadin Lake Provincial Park, British Columbia, Canada",
+            "Boya Lake Provincial Park, British Columbia, Canada",
+            "Robert Service Campground, Whitehorse, Yukon, Canada",
+            "Kathleen Lake, Yukon, Canada"
+        ];
+
+        const getCoordinates = async (place) => {
+            try {
+                const response = await axios.get(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place)}&format=json`);
+                if (response.data && response.data.length > 0) {
+                    const { lat, lon } = response.data[0];
+                    return [parseFloat(lat), parseFloat(lon)];
+                }
+                console.warn(`No data found for ${place}`);
+                return null;
+            } catch (error) {
+                console.error(`Error fetching data for ${place}:`, error);
+                return null;
+            }
+        };
+        const findTownsNearSampledPoints = async (sampledPoints, map) => {
+            for (let point of sampledPoints) {
+                const lat = point[0];
+                const lon = point[1];
+
+                const overpassQuery = `
+      [out:json];
+      (
+        node["place"="town"](around:50000, ${lat}, ${lon});
+        node["place"="city"](around:50000, ${lat}, ${lon});
+      );
+      out body;
+    `;
+
+                try {
+                    const response = await axios.post(
+                        'http://overpass-api.de/api/interpreter',
+                        `data=${encodeURIComponent(overpassQuery)}`,
+                        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+                    );
+
+                    response.data.elements.forEach(element => {
+                        const townCoords = [element.lat, element.lon];
+                        L.marker(townCoords).addTo(map).bindPopup(element.tags.name || "Unknown");
+                    });
+                } catch (error) {
+                    console.error("Error fetching towns:", error);
+                }
+            }
+        };
+
+        // Function to calculate the distance between two coordinates (Haversine formula)
+        const calculateDistance = (coord1, coord2) => {
+            const R = 6371; // Earth radius in kilometers
+            const lat1 = coord1[0] * Math.PI / 180;
+            const lon1 = coord1[1] * Math.PI / 180;
+            const lat2 = coord2[0] * Math.PI / 180;
+            const lon2 = coord2[1] * Math.PI / 180;
+            const dLat = lat2 - lat1;
+            const dLon = lon2 - lon1;
+
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1) * Math.cos(lat2) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        };
+
+        // Function to sample points along a route every `interval_km`
+        const sampleRoutePoints = (routeCoords, interval_km) => {
+            let sampledPoints = [];
+            let accumulatedDistance = 0;
+
+            for (let i = 1; i < routeCoords.length; i++) {
+                const segmentDistance = calculateDistance(routeCoords[i - 1], routeCoords[i]);
+                accumulatedDistance += segmentDistance;
+
+                if (accumulatedDistance >= interval_km) {
+                    sampledPoints.push(routeCoords[i]);
+                    accumulatedDistance = 0; // Reset the accumulated distance
+                }
+            }
+
+            return sampledPoints;
+        };
+
+
+        const getRoute = async (startCoords, endCoords) => {
+            try {
+                const response = await axios.get(`http://router.project-osrm.org/route/v1/driving/${startCoords[1]},${startCoords[0]};${endCoords[1]},${endCoords[0]}?overview=full&geometries=geojson`);
+                return response.data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+            } catch (error) {
+                console.error(`Error fetching route:`, error);
+                return null;
+            }
+        };
+
+        const initializeMap = async () => {
+            const map = L.map('map').setView([51.0447, -114.0719], 5); // Calgary coords as default
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+
+            const coordinates = [];
+            for (let place of places) {
+                const coord = await getCoordinates(place);
+                if (coord) {
+                    coordinates.push(coord);
+                    L.marker(coord).addTo(map).bindPopup(place.split(',')[0]);
+                }
+            }
+
+            // Plot routes and find towns along the way
+            for (let i = 0; i < coordinates.length - 1; i++) {
+                const startCoords = coordinates[i];
+                const endCoords = coordinates[i + 1];
+                const route = await getRoute(startCoords, endCoords);
+
+                if (route) {
+                    L.polyline(route, { color: 'blue', weight: 2.5 }).addTo(map);
+
+                    // Sample points every 100 km along the route
+                    const sampledPoints = sampleRoutePoints(route, 100);
+
+                    // Find towns near each sampled point
+                    await findTownsNearSampledPoints(sampledPoints, map);
+                }
+            }
+        };
+
+        initializeMap();
+    </script>
+</body>
